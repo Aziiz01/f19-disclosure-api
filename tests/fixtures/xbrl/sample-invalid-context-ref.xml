@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xbrl xmlns="http://www.xbrl.org/2003/instance"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:link="http://www.xbrl.org/2003/linkbase"
+      xmlns:xlink="http://www.w3.org/1999/xlink"
+      xmlns:us-gaap="http://fasb.org/us-gaap/2024">
+
+  <link:schemaRef xlink:type="simple"
+                  xlink:href="https://xbrl.fasb.org/us-gaap/2024/elts/us-gaap-2024.xsd"/>
+
+  <context id="ctx-FY2025-duration">
+    <entity>
+      <identifier scheme="http://example.com/disclosure-engine">DE-SAMPLE-ENTITY</identifier>
+    </entity>
+    <period>
+      <startDate>2025-01-01</startDate>
+      <endDate>2025-12-31</endDate>
+    </period>
+  </context>
+
+  <unit id="EUR">
+    <measure>iso4217:EUR</measure>
+  </unit>
+
+  <us-gaap:Revenues      contextRef="ctx-FY2025-duration"  unitRef="EUR" decimals="0">12345678</us-gaap:Revenues>
+  <us-gaap:NetIncomeLoss contextRef="ctx-DOES-NOT-EXIST"   unitRef="EUR" decimals="0">987654</us-gaap:NetIncomeLoss>
+
+</xbrl>

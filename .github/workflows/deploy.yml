@@ -1,0 +1,121 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  AZURE_WEBAPP_NAME: disclosure-engine
+  PUBLISH_DIR: ./publish
+
+# NOTE: this workflow is committed configuration only — it activates the day an
+# Azure subscription + the referenced secrets are connected to this repository.
+# The build-and-test job runs on every event; deploy + migrate run only on
+# push-to-main and short-circuit gracefully when their secret is absent.
+
+jobs:
+  build-and-test:
+    name: Build, test, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore DisclosureEngine.sln
+
+      - name: Build (Release)
+        run: dotnet build DisclosureEngine.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test DisclosureEngine.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publish API
+        run: dotnet publish src/DisclosureEngine.Api/DisclosureEngine.Api.csproj -c Release --no-build -o ${{ env.PUBLISH_DIR }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: disclosure-engine
+          path: ${{ env.PUBLISH_DIR }}
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Azure App Service
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: disclosure-engine
+          path: ${{ env.PUBLISH_DIR }}
+
+      - name: Verify publish profile secret is present
+        run: |
+          if [ -z "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" ]; then
+            echo "::warning::AZURE_WEBAPP_PUBLISH_PROFILE not set — skipping deployment. Populate it in repo settings to enable."
+            exit 0
+          fi
+          echo "Publish profile present; proceeding."
+
+      - name: Deploy to Azure App Service
+        if: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE != '' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ env.PUBLISH_DIR }}
+
+  migrate-database:
+    name: Apply EF Core migrations
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 8.0.10
+
+      - name: Verify database connection-string secret is present
+        run: |
+          if [ -z "${{ secrets.AZURE_SQL_CONNECTION_STRING }}" ]; then
+            echo "::warning::AZURE_SQL_CONNECTION_STRING not set — skipping migration. Populate it in repo settings to enable."
+            exit 0
+          fi
+          echo "DB connection string present; proceeding."
+
+      - name: Apply migrations
+        if: ${{ secrets.AZURE_SQL_CONNECTION_STRING != '' }}
+        env:
+          ConnectionStrings__DefaultMigrations: ${{ secrets.AZURE_SQL_CONNECTION_STRING }}
+          ConnectionStrings__Default:           ${{ secrets.AZURE_SQL_CONNECTION_STRING }}
+        run: |
+          dotnet ef database update \
+            --project src/DisclosureEngine.Infrastructure \
+            --startup-project src/DisclosureEngine.Api
