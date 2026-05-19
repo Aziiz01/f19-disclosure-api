@@ -7,6 +7,8 @@
 
 A study of the architecture behind regulated financial-reporting SaaS: tenant-isolated data, machine-readable XBRL tagging, an immutable audit trail, and a strict `Draft → Submitted → Published` workflow enforced in the domain — built against **ESEF**, **CSRD**, and Dutch **SBR** constraints.
 
+**▶ Live API (Swagger UI):** <https://disclosure-engine.fly.dev/swagger/index.html>
+
 ---
 
 ## Tech stack
@@ -161,30 +163,6 @@ Swagger UI: <https://localhost:7199/swagger>. MinIO console: <http://localhost:9
 |---|---|---|---|
 | `admin@acme.test`      | `Admin@123!`    | Acme Corp NV  | Admin |
 | `reporter@globex.test` | `Reporter@123!` | Globex BV     | Reporter |
-
----
-
-## Walkthrough
-
-```bash
-# Authenticate, capture the JWT.
-TOKEN=$(curl -s -X POST http://localhost:5207/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@acme.test","password":"Admin@123!"}' | jq -r .token)
-
-# Create a draft report (tenant comes from the JWT claim), upload XBRL, attach a PDF.
-RID=$(curl -s -X POST http://localhost:5207/api/reports \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"title":"FY2025 ESEF report","fiscalYear":2025}' | jq -r .id)
-curl -s -X POST http://localhost:5207/api/reports/$RID/xbrl/upload \
-  -H "Authorization: Bearer $TOKEN" -F "file=@tests/fixtures/xbrl/sample-minimal.xml"
-
-# Walk the state machine. A second submit returns 409.
-curl -s -X POST http://localhost:5207/api/reports/$RID/submit  -H "Authorization: Bearer $TOKEN"
-curl -s -X POST http://localhost:5207/api/reports/$RID/publish -H "Authorization: Bearer $TOKEN"
-```
-
-Logging in as `reporter@globex.test` and listing reports returns *only* Globex reports — tenant isolation is enforced by EF Core query filters, not controller code.
 
 ---
 
